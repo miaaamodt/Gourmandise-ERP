@@ -1,5 +1,19 @@
 # Gourmandise ERP
 
+## Shared testing without sign-in
+
+This branch opens the ERP directly, without approved-user accounts. Changes save to a public Supabase testing copy and other devices refresh about every 10 seconds while idle. Anyone who can access the site can view and edit this testing copy. Use testing data.
+
+Before activating this branch, run `supabase/migrations/202611180002_shared_testing.sql` once in the Supabase SQL Editor. It creates an independent `erp_preview_state` table and version-checked `erp_preview_save` function. It leaves the staff-only tables, membership rules, and existing data unchanged. The publishable key is intentionally public.
+
+On first opening, choose the sample catalog and records or explicitly share this browser’s earlier bakery data. After that, every browser loads the same copy without a login. Existing `bakery5` browser storage is preserved. Personal product selection and typed display name stay per device. A banner confirms online saves. Conflicting or failed saves block further editing and offer a downloadable unsaved backup; reload and manually reapply those edits rather than silently overwriting someone else.
+
+`preview.js` handles shared testing; `cloud.js` remains available as the staff-sign-in reference. To enable staff accounts later, adapt the Supabase login version from commit `051bfbd93f0181212370491386f6d75e9edf08df`, preserve subsequent interface changes, and finish the staff setup below. Private production data should use the staff-only tables. Public test data is not automatically copied into them.
+
+Validation: `npm test` runs the original staff database permissions tests, the public testing database permissions/version tests, and a two-device browser test for no-login loading, shared saving, refresh, and conflict recovery. The new browser test replaces the original login-flow browser test; that earlier test is available in the login integration commit. The public testing schema still needs to be applied and verified against the real project.
+
+## Staff-sign-in setup reference (paused during shared testing)
+
 Static bakery ERP hosted with GitHub Pages. `cloud.js` connects `index.html` to Supabase email/password authentication and shared storage. The publishable key in `cloud.js` is intentionally public. Never add a Supabase secret key, service-role key, database password, or staff passwords to this repository.
 
 ## One-time setup before deploying this branch

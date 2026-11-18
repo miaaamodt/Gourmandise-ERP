@@ -1,6 +1,11 @@
 {
   "name": "gourmandise-erp",
   "private": true,
-  "scripts": { "test": "node test-database.mjs && node test-browser.cjs" },
-  "devDependencies": { "@electric-sql/pglite": "0.5.16", "playwright": "1.62.1" }
+  "scripts": {
+    "test": "node test-database.mjs && node test-preview-database.mjs && node test-browser.cjs"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.16",
+    "playwright": "1.62.1"
+  }
 }
