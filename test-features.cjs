@@ -1,0 +1,109 @@
+const {chromium}=require('playwright');
+const http=require('node:http'),fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict'),{execFileSync}=require('node:child_process');
+const root=__dirname,clone=x=>JSON.parse(JSON.stringify(x)),report=[];
+const server=http.createServer((req,res)=>{const url=new URL(req.url,'http://localhost'),staff=url.pathname==='/staff';let file=staff?'index.html':url.pathname==='/'?'index.html':url.pathname.slice(1);if(file.includes('..')){res.statusCode=403;return res.end();}const target=path.join(root,file);if(!fs.existsSync(target)||!fs.statSync(target).isFile()){res.statusCode=404;return res.end();}res.setHeader('Content-Type',file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':'text/html');res.end(fs.readFileSync(target));});
+const csv=rows=>rows.map(r=>r.map(x=>'"'+String(x).replaceAll('"','""')+'"').join(',')).join('\r\n');
+function workbook(rows){return execFileSync('python3',['-c',`import sys,json,zipfile,io,html
+rows=json.load(sys.stdin);out=io.BytesIO()
+def cell(v,r,c):
+ ref=chr(65+c)+str(r+1)
+ return '<c r="'+ref+'"><v>'+str(v)+'</v></c>' if isinstance(v,(int,float)) else '<c r="'+ref+'" t="inlineStr"><is><t>'+html.escape(str(v))+'</t></is></c>'
+sheet='<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>'+''.join('<row r="'+str(r+1)+'">'+''.join(cell(v,r,c) for c,v in enumerate(row))+'</row>' for r,row in enumerate(rows))+'</sheetData></worksheet>'
+with zipfile.ZipFile(out,'w',zipfile.ZIP_DEFLATED) as z:
+ z.writestr('xl/worksheets/sheet1.xml',sheet)
+sys.stdout.buffer.write(out.getvalue())`],{input:JSON.stringify(rows)});}
+(async()=>{
+ await new Promise(r=>server.listen(0,'127.0.0.1',r));
+ const browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_PATH||(fs.existsSync('/usr/bin/chromium')?'/usr/bin/chromium':undefined),args:['--no-sandbox']});
+ const site='http://127.0.0.1:'+server.address().port;
+ let row={data:null,version:0},mode='normal',role='management',writes=0;
+ const errors=[],unexpected=[];report.push=(...items)=>{console.log(items.join("\n"));return Array.prototype.push.apply(report,items);};
+ async function device({staff=false,mobile=false,zone='America/Denver'}={}){
+  const context=await browser.newContext({viewport:mobile?{width:390,height:844}:{width:1440,height:1000},isMobile:mobile,hasTouch:mobile,colorScheme:'dark',timezoneId:zone,acceptDownloads:true});
+  await context.addInitScript(()=>{window.setInterval=fn=>(window.__poll=fn,0);localStorage.setItem('bakery5','{"backup":"retained"}');});
+  if(staff)await context.route('**/app-config.js',r=>r.fulfill({contentType:'text/javascript',body:"window.ERP_CONFIG={accessMode:'staff'};"}));
+  await context.route('https://tzrumhqtimdrytqqhclc.supabase.co/**',async route=>{
+   const request=route.request(),url=request.url();
+   let result;
+   if(url.includes('/auth/v1/token'))result={access_token:'test-access',refresh_token:'test-refresh',expires_at:Math.floor(Date.now()/1000)+3600,user:{email:'manager@example.test'}};
+   else if(url.includes('/auth/v1/logout'))result={};
+   else if(url.includes('/erp_members?'))result=[{role}];
+   else if(url.includes('/erp_preview_state?')||url.includes('/erp_state?')){if(mode==='stale_read'){mode='normal';result=[{data:clone(initial),version:0}];}else result=[row];}
+   else if(url.includes('/rpc/erp_preview_save')||url.includes('/rpc/erp_save')){
+    const body=request.postDataJSON();writes++;
+    if(mode==='fail'){mode='normal';return route.fulfill({status:500,contentType:'application/json',body:JSON.stringify({message:'Test database unavailable'})});}
+    if(mode==='conflict'){mode='normal';row.version++;}
+    if(body.p_version!==row.version)return route.fulfill({status:400,contentType:'application/json',body:JSON.stringify({message:'ERP_CONFLICT: Another device saved first.'})});
+    row={data:clone(body.p_data),version:row.version+1};result=row;
+   }else{unexpected.push(url);return route.abort();}
+   await route.fulfill({contentType:'application/json',body:JSON.stringify(result)});
+  });
+  const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));await page.goto(site+(staff?'/staff':'/'));return page;
+ }
+ async function saved(page){await page.locator('#previewStatus,#cloudStatus').filter({hasText:/All changes saved online/}).waitFor();}
+ async function plan(page,week='2026-11-23',section='Week 1'){await page.locator('#nav').getByRole('button',{name:'Weekly plan',exact:true}).click();await page.locator('#planWeek').fill(week);await page.locator('#planWeek').press('Tab');await page.locator('.productionTabs').getByRole('button',{name:section,exact:true}).click();}
+ async function addTask(page,name,section,day='Wed'){if(section)await page.locator('.productionTabs').getByRole('button',{name:section,exact:true}).click();await page.getByRole('button',{name:'+ Add item',exact:true}).click();await page.locator('#planAddKind').selectOption('task');await page.locator('#planAddTask').fill(name);await page.locator('#planAddDay').selectOption(day);await page.locator('#planAddBatches').fill('3');await page.getByRole('button',{name:'Save item',exact:true}).click();await saved(page);await page.locator('#erpFeatureDialog').waitFor({state:'hidden'});}
+ async function openImport(page,rows,{filename='counts.csv',buffer=null}={}){await page.locator('#nav').getByRole('button',{name:'Inventory',exact:true}).click();await page.getByRole('button',{name:'Import inventory from Excel',exact:true}).click();await page.locator('#inventoryActor').fill('Inventory Tester');await page.locator('#inventoryUpload').setInputFiles({name:filename,mimeType:filename.endsWith('.xlsx')?'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':'text/csv',buffer:buffer||Buffer.from(csv(rows))});await page.locator('#inventoryPreview').filter({hasNotText:'Reading and validating…'}).waitFor();}
+ async function confirmImport(page){page.once('dialog',d=>d.accept());await page.locator('#confirmInventoryImport').click();await saved(page);await page.locator('#erpFeatureDialog').waitFor({state:'hidden'});}
+ const page=await device();await page.getByRole('button',{name:'Start with the sample catalog and records'}).click();await saved(page);
+ const recurring=await page.evaluate(()=>JSON.stringify(PRODUCTION_SCHEDULE)),initial=clone(row.data);
+ assert.equal(await page.locator('#loginEmail').count(),0);assert.equal(await page.evaluate(()=>localStorage.getItem('bakery5')),'{"backup":"retained"}');
+ await plan(page);await page.getByRole('button',{name:'Next week',exact:true}).click();assert.equal(await page.locator('#planWeek').inputValue(),'2026-11-30');await page.getByRole('button',{name:'Previous week',exact:true}).click();assert.equal(await page.locator('#planWeek').inputValue(),'2026-11-23');await page.getByRole('button',{name:'Current week',exact:true}).click();assert.equal(await page.locator('#planWeek').inputValue(),await page.evaluate(()=>ERPFeatures.localMonday()));await plan(page);const entry=await page.evaluate(()=>ERPFeatures.entries().find(e=>e.day==='Mon'));assert(entry);
+ const card=()=>page.locator(`[data-entry="${entry.key}"]`);
+ await card().locator('input').first().fill('120');await card().locator('input').first().press('Tab');await saved(page);
+ const quantities=await page.evaluate(k=>S.weeklyPlans['2026-11-23'].quantities[k],entry.key);
+ await card().locator('.dragHandle').dragTo(page.locator('.productionDay.day-Wed .productionDayHead'));await page.waitForFunction(key=>S.weeklyPlans?.['2026-11-23']?.assignments?.[key]==='Wed',entry.key);await saved(page);
+ assert.equal(row.data.weeklyPlans['2026-11-23'].assignments[entry.key],'Wed');assert.deepEqual(row.data.weeklyPlans['2026-11-23'].quantities[entry.key],quantities);
+ await page.reload();await saved(page);await plan(page);assert.equal(await card().evaluate(el=>el.closest('[data-day]').dataset.day),'Wed');
+ await plan(page,'2026-11-30');assert.equal(await card().evaluate(el=>el.closest('[data-day]').dataset.day),'Mon');await plan(page);
+ await page.getByRole('button',{name:'Undo Move',exact:true}).click();await saved(page);assert.equal(row.data.weeklyPlans['2026-11-23'].assignments[entry.key],'Mon');
+ await card().getByRole('combobox').selectOption('Thu');await saved(page);page.once('dialog',d=>d.accept());await page.getByRole('button',{name:'Reset This Week',exact:true}).click();await saved(page);assert.deepEqual(row.data.weeklyPlans['2026-11-23'].assignments,{});assert.deepEqual(row.data.weeklyPlans['2026-11-23'].quantities[entry.key],quantities);
+ report.push('Drag Monday→Wednesday; units/batches retained; refresh; independent future week; undo; day-only reset.');
+ const product=await page.evaluate(()=>S.items.find(i=>!i.archived));
+ for(let n=0;n<2;n++){await page.getByRole('button',{name:'+ Add item',exact:true}).click();await page.locator('#planAddProduct').fill(`${product.name} [#${product.id}]`);await page.locator('#planAddDay').selectOption('Tue');await page.locator('#planAddUnits').fill('25');await page.getByRole('button',{name:'Save item',exact:true}).click();await saved(page);await page.locator('#erpFeatureDialog').waitFor({state:'hidden'});}
+ const added=row.data.weeklyPlans['2026-11-23'].added.filter(e=>e.productId===product.id);assert.equal(added.length,2);assert.notEqual(added[0].id,added[1].id);
+ await addTask(page,'Prepare event trays');
+ await page.getByRole('button',{name:'− Remove item',exact:true}).click();assert(await page.locator('#confirmRemoveItem').isDisabled());await page.locator('#removeItemSearch').fill(added[0].id);await page.locator('#removeItemSearch').press('ArrowDown');await page.locator('#removeItemSearch').press('Enter');assert(await page.locator('#confirmRemoveItem').isEnabled());page.once('dialog',d=>d.accept());await page.locator('#confirmRemoveItem').click();await saved(page);assert(row.data.weeklyPlans['2026-11-23'].removed[added[0].id]);assert(!row.data.weeklyPlans['2026-11-23'].removed[added[1].id]);
+ await page.getByRole('button',{name:'− Remove item',exact:true}).click();await page.locator('#removeItemSearch').fill(entry.name);await page.getByRole('option',{name:`${entry.name} — Monday · recurring #${entry.key}`,exact:true}).click();page.once('dialog',d=>d.accept());await page.locator('#confirmRemoveItem').click();await saved(page);assert.equal(await card().count(),0);await plan(page,'2026-11-30');assert.equal(await card().count(),1);await plan(page);
+ for(const section of ['Week 1','Week 2','Every Week','On Demand'])await addTask(page,'Temporary '+section,section);
+ assert.equal(row.data.weeklyPlans['2026-11-23'].added.filter(e=>e.name.startsWith('Temporary ')).length,4);const removalsBefore=clone(row.data.weeklyPlans['2026-11-23'].removed),additionsBefore=clone(row.data.weeklyPlans['2026-11-23'].added);page.once('dialog',d=>d.accept());await page.getByRole('button',{name:'Reset This Week',exact:true}).click();await saved(page);assert.deepEqual(row.data.weeklyPlans['2026-11-23'].removed,removalsBefore);assert.deepEqual(row.data.weeklyPlans['2026-11-23'].added,additionsBefore);
+ assert.equal(await page.evaluate(()=>JSON.stringify(PRODUCTION_SCHEDULE)),recurring);assert.deepEqual(row.data.tx,initial.tx);assert.deepEqual(row.data.sales,initial.sales);
+ report.push('Temporary catalog products and tasks; duplicate occurrence IDs; searchable/keyboard removal; recurring removal confined to week/section; all four categories; no inventory/sales/schedule mutation.');
+ const mobile=await device({mobile:true,zone:'Pacific/Auckland'});await saved(mobile);await plan(mobile,'2026-11-23','On Demand');const mobileKey=row.data.weeklyPlans['2026-11-23'].added.find(e=>e.name==='Temporary On Demand').id;await mobile.locator(`[data-entry="${mobileKey}"] select`).selectOption('Fri');await saved(mobile);assert.equal(row.data.weeklyPlans['2026-11-23'].assignments[mobileKey],'Fri');
+ const colors=await mobile.locator('.productionDay').first().evaluate(el=>({background:getComputedStyle(el).backgroundColor,text:getComputedStyle(el).color}));assert.equal(colors.background,'rgb(239, 246, 255)');assert(await mobile.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+ for(const [date,monday] of [['2026-11-23','2026-11-23'],['2026-03-08','2026-03-02'],['2026-11-01','2026-10-26']])assert.equal(await mobile.evaluate(d=>ERPFeatures.localMonday(d),date),monday);assert.equal(await page.evaluate(()=>ERPFeatures.localMonday('2026-11-23')),'2026-11-23');await mobile.screenshot({path:path.join(root,'mobile-weekly-plan.png'),fullPage:true});await mobile.context().close();await page.reload();await saved(page);
+ report.push('Mobile day dropdown, dark-mode contrast, no horizontal page overflow; Denver/Auckland local Monday identifiers.');
+ const products=await page.evaluate(()=>S.items.filter(i=>!i.archived).map(i=>({id:i.id,name:i.name,current:stock(i.id,'Main Fridge')})));
+ const positive=products.filter(i=>i.current>=5),a=positive[0],b=positive[1],c=positive[2],d=products.find(i=>![a.id,b.id,c.id].includes(i.id)),omitted=products.find(i=>![a.id,b.id,c.id,d.id].includes(i.id));
+ const rows=[['Product Name','Count'],[a.name,a.current+150],[b.name,b.current-5],[c.name,0],[d.name,d.current]],txBefore=clone(row.data.tx),omittedBefore=omitted.current;
+ await openImport(page,rows);assert.equal(await page.locator('#inventoryPreview tbody tr').count(),4);await confirmImport(page);assert.equal(row.data.tx.length,txBefore.length+3);assert.deepEqual(row.data.tx.slice(0,txBefore.length),txBefore);for(const item of [a,b,c,d]){const desired=rows.find(r=>r[0]===item.name)[1];assert.equal(await page.evaluate(id=>stock(id,'Main Fridge'),item.id),desired);}assert.equal(await page.evaluate(id=>stock(id,'Main Fridge'),omitted.id),omittedBefore);assert(row.data.tx.at(-1).importId);assert.equal(row.data.tx.at(-1).u,'Inventory Tester');assert(!isNaN(Date.parse(row.data.tx.at(-1).t)));
+ const afterImportCount=row.data.tx.length;await openImport(page,rows);await confirmImport(page);assert.equal(row.data.tx.length,afterImportCount);
+ const beforeCancel=stable(row);await openImport(page,rows);await page.getByRole('button',{name:'Close dialog',exact:true}).click();assert.equal(stable(row),beforeCancel);
+ report.push('CSV physical counts: increase +150, decrease −5, zero, unchanged; preserved transaction prefix/omitted products; employee/date/import ID; repeated import no double count; cancel no mutation.');
+ const invalids=[{name:'blank',rows:[['Product','Quantity'],[a.name,'']],error:'non-negative'},{name:'fraction',rows:[['Product','Quantity'],[a.name,'1.5']],error:'non-negative'},{name:'negative',rows:[['Product','Quantity'],[a.name,-1]],error:'non-negative'},{name:'duplicate',rows:[['Product','Quantity'],[a.name,1],[a.name,2]],error:'Duplicate'},{name:'unknown',rows:[['Product','Quantity'],['Unknown testing product',1]],error:'not found'},{name:'invalid',rows:[['Product','Quantity'],[a.name,'NaN']],error:'non-negative'},{name:'missing',rows:[['Wrong','Columns'],[a.name,1]],error:'Required columns'}];
+ for(const test of invalids){const before=stable(row),writeCount=writes;await openImport(page,test.rows);assert((await page.locator('#inventoryPreview').innerText()).includes(test.error));if(await page.locator('#confirmInventoryImport').count())assert(await page.locator('#confirmInventoryImport').isDisabled());await page.getByRole('button',{name:'Close dialog',exact:true}).click();assert.equal(stable(row),before);assert.equal(writes,writeCount);}
+ report.push('Negative/NaN quantities, duplicates, unknown products and missing headers rejected without writes.');
+ const stress=products.slice(0,120),stressRows=[['Item','Units'],...stress.map((p,i)=>[p.name,i])];assert(stress.length>=100);await openImport(page,null,{filename:'stress.xlsx',buffer:workbook(stressRows)});assert.equal(await page.locator('#inventoryPreview tbody tr').count(),stress.length);await confirmImport(page);assert.equal(await page.evaluate(id=>stock(id,'Main Fridge'),stress[119].id),119);await page.reload();await saved(page);assert.equal(await page.evaluate(id=>stock(id,'Main Fridge'),stress[119].id),119);
+ mode='stale_read';await page.evaluate(async()=>{document.activeElement?.blur();await window.__poll();});assert.equal(mode,'normal','Polling request was not exercised');assert.equal(await page.evaluate(id=>stock(id,'Main Fridge'),stress[119].id),119);report.push('Compressed XLSX upload with 120 catalog rows; atomic count adjustments, refresh persistence, and rejection of older polling snapshots.');
+ const failRows=[['Product','Quantity'],[a.name,999],[b.name,888]],beforeFail=clone(row.data.tx);await openImport(page,failRows);mode='fail';page.once('dialog',d=>d.accept());await page.locator('#confirmInventoryImport').click();await page.getByRole('button',{name:'Download unsaved copy',exact:true}).waitFor();assert.deepEqual(row.data.tx,beforeFail);assert.deepEqual(await page.evaluate(()=>S.tx),beforeFail);await page.reload();await saved(page);
+ await openImport(page,failRows);mode='conflict';page.once('dialog',d=>d.accept());await page.locator('#confirmInventoryImport').click();await page.getByRole('button',{name:'Download unsaved copy',exact:true}).waitFor();assert.deepEqual(row.data.tx,beforeFail);await page.reload();await saved(page);
+ report.push('Database/network failure and concurrent-version rejection: no partial local or shared inventory import.');
+ // Regression exercises on existing screens and parsers.
+ await page.locator('#nav').getByRole('button',{name:'Move',exact:true}).click();await page.locator('#employeeName').fill('Regression Baker');await page.locator('#mq').fill('5');await page.getByRole('button',{name:'Record movement',exact:true}).click();await saved(page);assert.equal(row.data.tx.at(-1).qty,5);
+ await page.locator('#nav').getByRole('button',{name:'Cycle count',exact:true}).click();await page.locator('#countEmployeeName').fill('Regression Counter');await page.locator('#cq').fill('42');await page.getByRole('button',{name:'Book adjustment',exact:true}).click();await saved(page);assert.equal(await page.evaluate(()=>stock(S.cur,'Main Fridge')),42);
+ await page.locator('#nav').getByRole('button',{name:'Sales & Forecast',exact:true}).click();await page.locator('#salesFile').setInputFiles({name:'sales.csv',mimeType:'text/csv',buffer:Buffer.from(csv([['Product','Quantity'],[a.name,1000]]))});await page.waitForFunction(id=>S.sales.some(s=>s.item===id&&s.units===1000),a.id);await saved(page);assert(row.data.sales.some(s=>s.item===a.id&&s.units===1000));
+ const download=page.waitForEvent('download');await page.evaluate(()=>downloadForecastXlsx());const file=await download;assert(file.suggestedFilename().endsWith('.xlsx'));assert(fs.statSync(await file.path()).size>500);
+ for(const name of ['Products','Inventory','Log'])await page.locator('#nav').getByRole('button',{name,exact:true}).click();
+ await page.locator('#nav').getByRole('button',{name:'Products',exact:true}).click();await page.evaluate(()=>openProductDialog('add'));await page.locator('#spreadsheetModeTab').click();await page.locator('#addProductDialog input[type=file]').setInputFiles({name:'new-products.csv',mimeType:'text/csv',buffer:Buffer.from(csv([['Product Name','Category','Production Schedule','Production Day'],['Regression Import Product','Bread & Pastries','Every Week','Tuesday']]))});await page.getByRole('button',{name:'Confirm import (1 products)',exact:true}).click();await saved(page);assert(row.data.items.some(i=>i.name==='Regression Import Product'));await page.evaluate(()=>closeProductDialog('add'));
+ await plan(page);await page.screenshot({path:path.join(root,'desktop-weekly-plan.png'),fullPage:true});
+ report.push('Existing product CSV import adds a catalog product and preserves its recurring production entry.');
+
+ const downloadTemplate=page.waitForEvent('download');await page.evaluate(()=>ERPFeatures.sample());const template=await downloadTemplate;await template.saveAs(path.join(root,'inventory-count-template.xlsx'));
+ report.push('Existing navigation, inventory movement, cycle count, sales CSV upload, and forecast XLSX download.');
+ const staff=await device({staff:true});await staff.getByLabel('Email',{exact:true}).fill('manager@example.test');await staff.getByLabel('Password',{exact:true}).fill('test-password');await staff.getByRole('button',{name:'Sign in',exact:true}).click();await saved(staff);await plan(staff);assert.equal(await staff.getByRole('button',{name:'+ Add item',exact:true}).count(),1);await staff.evaluate(()=>logout());await staff.getByRole('heading',{name:'Sign in to Bakery ERP'}).waitFor();role='employee';await staff.getByLabel('Email',{exact:true}).fill('employee@example.test');await staff.getByLabel('Password',{exact:true}).fill('test-password');await staff.getByRole('button',{name:'Sign in',exact:true}).click();await saved(staff);assert.equal(await staff.locator('#nav').getByRole('button',{name:'Weekly plan',exact:true}).count(),0);assert.equal(await staff.locator('#nav').getByRole('button',{name:'Move',exact:true}).count(),1);assert.equal(await staff.evaluate(()=>{try{ERPFeatures.openInventory();return false}catch{return true}}),true);
+ report.push('Optional staff-mode management and employee login; employee navigation and direct-handler restrictions (database permissions tested separately).');
+ assert.deepEqual(errors,[]);assert.deepEqual(unexpected,[]);
+ fs.writeFileSync(path.join(root,'feature-test-results.json'),JSON.stringify({passed:true,groups:report,writes,limitations:['Supabase browser calls use a versioned mock; live data was not modified.']},null,2));
+ console.log(JSON.stringify({passed:true,groups:report.length,writes}));await browser.close();server.close();
+ function stable(value){return JSON.stringify(value);}
+})().catch(error=>{console.error(error);server.close();process.exit(1);});

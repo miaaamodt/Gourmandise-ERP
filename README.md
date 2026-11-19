@@ -1,5 +1,14 @@
 # Gourmandise ERP
 
+## Weekly planning and inventory update — November 19, 2026
+
+The current release adds calendar-week scheduling, drag/drop and mobile day moves, move undo, day-only reset, temporary production items, searchable occurrence removal, and atomic XLSX/CSV inventory physical-count imports. It preserves the existing ERP, blue mobile palette, catalog, inventory history, sales and forecast calculations.
+
+Read [the user guide and backup instructions](docs/WEEKLY-PLAN-AND-INVENTORY.md), [the browser testing report and limitations](docs/TESTING.md), or download the [inventory XLSX sample](samples/inventory-count-template.xlsx) and [CSV sample](samples/inventory-count-template.csv).
+
+No additional SQL setup is needed. The live default remains shared testing without sign-in, as requested. `app-config.js` now selects `testing` or `staff`, and `connection.js` loads the matching storage adapter. Staff setup remains described below; staff permissions are enforced by the existing database function when staff mode is enabled. The code and sample data are not a replacement for production access controls.
+
+
 ## Shared testing without sign-in
 
 This branch opens the ERP directly, without approved-user accounts. Changes save to a public Supabase testing copy and other devices refresh about every 10 seconds while idle. Anyone who can access the site can view and edit this testing copy. Use testing data.
@@ -8,7 +17,7 @@ Before activating this branch, run `supabase/migrations/202611180002_shared_test
 
 On first opening, choose the sample catalog and records or explicitly share this browser’s earlier bakery data. After that, every browser loads the same copy without a login. Existing `bakery5` browser storage is preserved. Personal product selection and typed display name stay per device. A banner confirms online saves. Conflicting or failed saves block further editing and offer a downloadable unsaved backup; reload and manually reapply those edits rather than silently overwriting someone else.
 
-`preview.js` handles shared testing; `cloud.js` remains available as the staff-sign-in reference. To enable staff accounts later, adapt the Supabase login version from commit `051bfbd93f0181212370491386f6d75e9edf08df`, preserve subsequent interface changes, and finish the staff setup below. Private production data should use the staff-only tables. Public test data is not automatically copied into them.
+`preview.js` handles shared testing; `cloud.js` remains available as the staff-sign-in reference. To enable staff accounts later, finish the staff setup below and change `accessMode` to `'staff'` in `app-config.js`. Private production data should use the staff-only tables. Public test data is not automatically copied into them.
 
 Validation: `npm test` runs the original staff database permissions tests, the public testing database permissions/version tests, and a two-device browser test for no-login loading, shared saving, refresh, and conflict recovery. The new browser test replaces the original login-flow browser test; that earlier test is available in the login integration commit. The public testing schema still needs to be applied and verified against the real project.
 
@@ -60,3 +69,4 @@ Every save checks a database version under a row lock. If another device saved f
 The database migration was tested using PostgreSQL in PGlite, including anonymous access denial, membership restrictions, management initialization, employee append-only rules, actor stamping, invalid input, concurrent version rejection, and staff revocation. Browser tests mock Supabase and cover sign-in, first-time setup, online saves, browser-data preservation, role-specific navigation, and conflict handling. These tests do not replace an end-to-end check against the configured Supabase project after setup.
 
 To run locally with Node.js 22 or later: `npm install`, `npx playwright install chromium`, then `npm test`. If system Chromium is installed, the browser test uses it; alternatively set `CHROMIUM_PATH`.
+

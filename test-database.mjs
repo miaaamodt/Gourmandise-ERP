@@ -57,5 +57,17 @@ await db.exec(`reset role; delete from public.erp_members where user_id='${emplo
 await as('authenticated',employee);
 assert.equal((await db.query('select * from public.erp_state')).rows.length,0);
 await assert.rejects(save(row.data,3),/Staff access required/);
+
+await as('authenticated',manager);
+const current=(await db.query('select data,version from public.erp_state')).rows[0];
+const planned={...current.data,weeklyPlans:{'2026-11-23':{assignments:{'r-1':'Wed'},added:[],removed:{}}},auditLog:[{action:'plan.move'}]};
+assert.equal((await save(planned,current.version)).rows[0].result.version,Number(current.version)+1);
+await db.exec(`reset role; insert into public.erp_members values('${employee}','employee');`);
+await as('authenticated',employee);
+const latest=(await db.query('select data,version from public.erp_state')).rows[0];
+await assert.rejects(save({...latest.data,weeklyPlans:{}},latest.version),/Employees may only/);
+await assert.rejects(save({...latest.data,items:[{id:0,name:'Unauthorized bulk catalog change'}]},latest.version),/Employees may only/);
+await assert.rejects(save({...latest.data,auditLog:[]},latest.version),/Employees may only/);
 await db.close();
 console.log('Database tests passed: staff access, role restrictions, validation, audit fields, concurrency, and revocation.');
+

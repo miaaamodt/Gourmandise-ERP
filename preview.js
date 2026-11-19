@@ -62,6 +62,26 @@
     } catch(error) {pending=true;failed(error);}
     finally {saving=false;if(pending&&!blocked)void flush();}
   }
+  // Atomic management edits are applied to the UI only after database acknowledgement.
+  async function commit(mutator) {
+    if(!ready||blocked)throw Error('Shared storage is not ready. Reload before editing.');
+    editing(false);clearTimeout(timer);
+    try {
+      while(saving)await new Promise(resolve=>setTimeout(resolve,30));
+      if(pending)await flush();
+      while(saving)await new Promise(resolve=>setTimeout(resolve,30));
+      if(blocked)throw Error('Earlier changes could not be saved. Reload first.');
+      const next=copy(S);mutator(next);delete next.cur;delete next.user;
+      saving=true;announce('Saving the complete change online…');
+      const row=await api('rpc/erp_preview_save',{p_data:next,p_version:version});
+      applyRecord(row);pending=false;render();
+      announce('Shared testing · All changes saved online. No sign-in required.');
+      return row;
+    } catch(error) {
+      if(saving)failed(error);
+      throw error;
+    } finally {saving=false;if(!blocked)editing(true);}
+  }
   async function initialize(fromBrowser) {
     if(initializing||ready)return;
     initializing=true;
@@ -105,13 +125,14 @@
     refreshing=true;
     try {
       const rows=await api('erp_preview_state?select=data,version&id=eq.1');
-      if(rows[0]?.data&&Number(rows[0].version)!==version&&!pending&&!saving&&!blocked) {
+      if(rows[0]?.data&&Number(rows[0].version)>version&&!pending&&!saving&&!blocked) {
         applyRecord(rows[0]);render();announce('Shared testing · Updated with the latest changes from another device.');
       }
     } catch(error){announce('Could not refresh shared data. '+error.message);}
     finally{refreshing=false;}
   },10000);
   window.addEventListener('beforeunload',event=>{if(pending||saving||blocked){event.preventDefault();event.returnValue='';}});
-  window.ERPPreview={save,initialize,backup,cacheGet:()=>cache,cacheSet:value=>{cache=value;}};
+  window.ERPPreview={save,commit,initialize,backup,cacheGet:()=>cache,cacheSet:value=>{cache=value;}};
   void start();
 })();
+

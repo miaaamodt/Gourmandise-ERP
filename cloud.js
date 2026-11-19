@@ -135,6 +135,22 @@
     tab = role === 'employee' ? 'Move' : 'Products'; render();
     announce('Connected. All changes saved online.');
   }
+  async function commit(mutator) {
+    if(!ready||blocked||activeRole!=='management')throw Error('Management access and an active connection are required.');
+    document.getElementById('v').inert=true;document.getElementById('nav').inert=true;
+    document.getElementById('user').disabled=true;clearTimeout(timer);
+    try {
+      while(saving)await new Promise(resolve=>setTimeout(resolve,30));
+      if(pending)await flush();
+      while(saving)await new Promise(resolve=>setTimeout(resolve,30));
+      if(blocked)throw Error('Earlier changes could not be saved. Reload first.');
+      const next=clone(S);mutator(next);delete next.cur;delete next.user;
+      saving=true;announce('Saving the complete change online…');
+      const row=await api('rpc/erp_save',{p_data:next,p_version:version});
+      applyRecord(row);pending=false;render();announce('All changes saved online.');return row;
+    } catch(error) {if(saving)lock(error);throw error;}
+    finally {saving=false;if(!blocked){document.getElementById('v').inert=false;document.getElementById('nav').inert=false;document.getElementById('user').disabled=false;}}
+  }
   async function initialize(fromBrowser) {
     if(busy || window.ERPCloud.initialRole !== 'management') return;
     busy = true;
@@ -179,7 +195,7 @@
     announce('Signed out.');
     if(oldToken) try { await fetch(URL+'/auth/v1/logout', {method:'POST',headers:{apikey:KEY,Authorization:'Bearer '+oldToken}}); } catch {}
   }
-  window.ERPCloud = {signIn,signOut,save:saveShared,initialize,cacheGet:()=>cache,cacheSet:value=>{cache=value;},initialRole:null};
+  window.ERPCloud = {signIn,signOut,commit,save:saveShared,initialize,cacheGet:()=>cache,cacheSet:value=>{cache=value;},initialRole:null};
   window.addEventListener('beforeunload', event => { if(pending || saving || blocked) { event.preventDefault(); event.returnValue = ''; } });
   setInterval(async () => {
     if(!ready || saving || pending || blocked || busy || document.hidden || document.querySelector('dialog[open]') || /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement?.tagName)) return;
@@ -188,7 +204,7 @@
     try {
       const rows = await api('erp_state?select=data,version&id=eq.1');
       // Local edits may have started during the request.
-      if(requestEpoch === epoch && ready && rows[0]?.data && Number(rows[0].version) !== version && !pending && !saving && !blocked) {
+      if(requestEpoch === epoch && ready && rows[0]?.data && Number(rows[0].version) > version && !pending && !saving && !blocked) {
         applyRecord(rows[0]); render(); announce('Updated with the latest shared data.');
       }
     } catch(error) { announce('Could not refresh shared data. '+error.message+' New edits will need an online save.'); }
@@ -205,3 +221,4 @@
   }
   void start();
 })();
+
