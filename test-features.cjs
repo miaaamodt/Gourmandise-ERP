@@ -21,7 +21,7 @@ sys.stdout.buffer.write(out.getvalue())`],{input:JSON.stringify(rows)});}
  async function device({staff=false,mobile=false,zone='America/Denver'}={}){
   const context=await browser.newContext({viewport:mobile?{width:390,height:844}:{width:1440,height:1000},isMobile:mobile,hasTouch:mobile,colorScheme:'dark',timezoneId:zone,acceptDownloads:true});
   await context.addInitScript(()=>{window.setInterval=fn=>(window.__poll=fn,0);localStorage.setItem('bakery5','{"backup":"retained"}');});
-  if(staff)await context.route('**/app-config.js',r=>r.fulfill({contentType:'text/javascript',body:"window.ERP_CONFIG={accessMode:'staff'};"}));
+  await context.route('**/app-config.js',r=>r.fulfill({contentType:'text/javascript',body:staff?"window.ERP_CONFIG={accessMode:'staff'};":"window.ERP_CONFIG={accessMode:'testing'};"}));
   await context.route('https://tzrumhqtimdrytqqhclc.supabase.co/**',async route=>{
    const request=route.request(),url=request.url();
    let result;

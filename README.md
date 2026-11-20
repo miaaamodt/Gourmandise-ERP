@@ -1,5 +1,10 @@
 # Gourmandise ERP
 
+## Temporary demonstration login
+
+The live presentation uses `accessMode:'demo'`. See [demo credentials and limitations](docs/DEMO-LOGIN.md). This is a browser presentation gate, not secure authentication; shared testing storage remains public. No Supabase setup is required for the demonstration. The prepared real staff-login change is saved separately on `prepared-staff-login-2026-11-20` for later activation.
+
+
 ## Weekly planning and inventory update — November 19, 2026
 
 The current release adds calendar-week scheduling, drag/drop and mobile day moves, move undo, day-only reset, temporary production items, searchable occurrence removal, and atomic XLSX/CSV inventory physical-count imports. It preserves the existing ERP, blue mobile palette, catalog, inventory history, sales and forecast calculations.
