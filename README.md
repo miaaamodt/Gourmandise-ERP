@@ -1,5 +1,11 @@
 # Gourmandise ERP
 
+## Staff sign-in activation
+
+This branch selects staff sign-in in `app-config.js`. Before deploying, complete [the secure data transfer and public-access closure](docs/LOGIN-SETUP.md) using `supabase/manual/enable-staff-access.sql`. Do not activate this branch by only changing the login screen: the old public testing endpoints must also be closed. The prepared transaction preserves the current records and keeps the old copy as a restricted backup. No password or manager email is stored in this repository.
+
+The remaining shared-testing descriptions below document the prior mode. The activated staff mode requires approved Supabase accounts and uses the staff-only database tables.
+
 ## Weekly planning and inventory update — November 19, 2026
 
 The current release adds calendar-week scheduling, drag/drop and mobile day moves, move undo, day-only reset, temporary production items, searchable occurrence removal, and atomic XLSX/CSV inventory physical-count imports. It preserves the existing ERP, blue mobile palette, catalog, inventory history, sales and forecast calculations.
@@ -69,4 +75,5 @@ Every save checks a database version under a row lock. If another device saved f
 The database migration was tested using PostgreSQL in PGlite, including anonymous access denial, membership restrictions, management initialization, employee append-only rules, actor stamping, invalid input, concurrent version rejection, and staff revocation. Browser tests mock Supabase and cover sign-in, first-time setup, online saves, browser-data preservation, role-specific navigation, and conflict handling. These tests do not replace an end-to-end check against the configured Supabase project after setup.
 
 To run locally with Node.js 22 or later: `npm install`, `npx playwright install chromium`, then `npm test`. If system Chromium is installed, the browser test uses it; alternatively set `CHROMIUM_PATH`.
+
 
