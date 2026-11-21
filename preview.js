@@ -15,7 +15,6 @@
     document.getElementById('user').disabled=!enabled;
   }
   function announce(message,recover=false) {
-    if(window.ERP_CONFIG?.accessMode==='demo')message=message.replace('Shared testing ·','Demo ·').replace('No sign-in required.','Presentation login only; shared data remains public.');
     status.replaceChildren(document.createTextNode(message));
     if(recover) {
       const download=document.createElement('button');download.textContent='Download unsaved copy';download.onclick=backup;
@@ -133,7 +132,7 @@
     finally{refreshing=false;}
   },10000);
   window.addEventListener('beforeunload',event=>{if(pending||saving||blocked){event.preventDefault();event.returnValue='';}});
-  window.ERPPreview={save,commit,initialize,backup,canSignOut:()=>!pending&&!saving&&!blocked,cacheGet:()=>cache,cacheSet:value=>{cache=value;}};
+  window.ERPPreview={save,commit,initialize,backup,cacheGet:()=>cache,cacheSet:value=>{cache=value;}};
   void start();
 })();
 
