@@ -174,17 +174,35 @@
   async function signIn() {
     if(busy) return;
     busy = true; loginMessage = '';
-    const email = document.getElementById('loginEmail').value.trim();
+    const username = document.getElementById('loginUsername').value.trim();
     const passwordField = document.getElementById('loginPassword');
     const password = passwordField.value; passwordField.value = '';
+    const expectedUsername = String(window.ERP_CONFIG?.managementUsername || '');
+    const email = String(window.ERP_CONFIG?.managementEmail || '');
     announce('Signing in…');
     try {
+      if(username.toLowerCase() !== expectedUsername.toLowerCase() || !email) throw new Error('Incorrect username or password.');
       rememberSession(await authRequest('token?grant_type=password', {email,password}));
       await openBakery();
+      if(activeRole !== 'management') throw new Error('This account does not have management access.');
     } catch(error) {
       rememberSession(null); activeRole = ''; ready = false;
       loginMessage = '<span class="bad">'+esc(error.message)+'</span>'; render();
       announce('Sign-in or database setup needs attention.');
+    } finally { busy = false; }
+  }
+  async function continueAsEmployee() {
+    if(busy) return;
+    busy = true; loginMessage = '';
+    announce('Opening employee access…');
+    try {
+      rememberSession(await authRequest('signup', {data:{}}));
+      await openBakery();
+      if(activeRole !== 'employee') throw new Error('Employee access could not be verified.');
+    } catch(error) {
+      rememberSession(null); activeRole = ''; ready = false;
+      loginMessage = '<span class="bad">'+esc(error.message)+'</span>'; render();
+      announce('Employee access needs attention.');
     } finally { busy = false; }
   }
   async function signOut() {
@@ -195,7 +213,7 @@
     announce('Signed out.');
     if(oldToken) try { await fetch(URL+'/auth/v1/logout', {method:'POST',headers:{apikey:KEY,Authorization:'Bearer '+oldToken}}); } catch {}
   }
-  window.ERPCloud = {signIn,signOut,commit,save:saveShared,initialize,cacheGet:()=>cache,cacheSet:value=>{cache=value;},initialRole:null};
+  window.ERPCloud = {signIn,continueAsEmployee,signOut,commit,save:saveShared,initialize,cacheGet:()=>cache,cacheSet:value=>{cache=value;},initialRole:null};
   window.addEventListener('beforeunload', event => { if(pending || saving || blocked) { event.preventDefault(); event.returnValue = ''; } });
   setInterval(async () => {
     if(!ready || saving || pending || blocked || busy || document.hidden || document.querySelector('dialog[open]') || /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement?.tagName)) return;
