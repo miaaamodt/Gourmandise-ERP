@@ -1,13 +1,29 @@
-# Restore staff sign-in
+# Activate management and employee access
 
-Before deploying this branch, run `supabase/manual/enable-staff-access.sql` in a new, blank Supabase SQL Editor query. Replace the single quoted `MANAGER_EMAIL_HERE` value with the existing Authentication user's email. Do not rerun the original table-creation migrations.
+Complete the Supabase steps before publishing this branch to GitHub Pages. This site expects the existing staff tables and moves current shared testing data into staff-only storage before public access is closed.
 
-The query runs as one transaction. It verifies that the user exists, copies the initialized shared testing JSON into empty staff storage, grants that user management access, and closes public read and write access to the old testing table/function. Existing weekly plans, quantities, temporary entries, inventory transactions, sales, and audit records are preserved. The old copy stays in the database as a restricted backup. If staff storage already has different data, the query stops instead of overwriting it.
+## 1. Provision the management account
 
-After the query succeeds, deploy the branch's `app-config.js` with `accessMode:'staff'`. The existing email/password sign-in screen and staff storage adapter then load. Sign in with the approved Supabase Authentication email/password. No password or management email is committed to GitHub.
+In Supabase **Authentication → Users**, create or confirm the management user at `mikalya@gourmandise.com`. Use the management password privately in Supabase; it is not stored in the site or repository. The site displays the public username configured in `app-config.js` and maps it to this email. The configured username/email are routing identifiers; the password remains only in Supabase Auth.
 
-New accounts still need to be provisioned in Supabase Authentication and explicitly added to `erp_members`. Employees have Move and Cycle count access; management has planning and inventory-import access. Disable open signup in Authentication settings if it is still enabled.
+## 2. Preserve the current bakery data and close public access
 
-This protects current shared Supabase records. It does not make the public GitHub repository, website source, or embedded starter/sample catalog private. Information already downloaded to an open testing tab cannot be recalled; refresh those tabs after cutover.
+If the staff tables do not exist yet, apply `supabase/migrations/202611180001_bakery_cloud.sql` and `supabase/migrations/202611180002_shared_testing.sql` once. Do not rerun table-creation migrations that have already been applied.
 
-The SQL cutover was tested in PostgreSQL/PGlite for exact data preservation, rejected missing users, closure of both public read and write paths, management-only access, and refusal to overwrite different existing staff data. The existing application release separately tests management/employee login in Chromium against mocked authentication. A real account sign-in check is still required after the administrator applies the query.
+Open **SQL Editor → New query** and run `supabase/manual/enable-staff-access.sql`. It verifies the manager account, copies the initialized shared testing data to staff storage without overwriting different staff data, and closes public read/write access to the old testing table and save function. The script is safe to review before running and stops if its required data is missing.
+
+## 3. Add anonymous employee access
+
+Run `supabase/migrations/202611210001_anonymous_employee_access.sql` once. It assigns the employee role to anonymous Supabase accounts. It does not grant the public `anon` database role access to bakery data.
+
+In Supabase **Authentication → Sign-In / Providers**, enable **Allow anonymous sign-ins**. The employee button creates an anonymous account; Supabase sessions are browser-specific and cannot be recovered after signing out or clearing browser data. Consider enabling CAPTCHA or Turnstile to reduce automated anonymous account creation.
+
+Keep email/password signups restricted to administrator-provisioned users if desired. The employee anonymous-sign-in setting is separate. Do not add the manager password or a Supabase secret key to GitHub.
+
+## 4. Publish and verify
+
+Merge the reviewed branch into `main` after the Supabase steps above. GitHub Pages must publish the repository root. Then verify that the management username reaches the management role and that **Continue as employee** exposes only **Move** and **Cycle Count**. The database additionally rejects employee changes to products, forecasts, schedules, sales, and historical transactions.
+
+If the manager email changes later, update `app-config.js`, create/confirm the new Supabase account, and move the `management` membership to that account in `erp_members`. Do not leave the old account with management access.
+
+The old public testing copy remains in Supabase only as a restricted backup after the cutover. Previously opened testing tabs may still hold stale content; reload them after the cutover.
