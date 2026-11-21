@@ -129,11 +129,12 @@
       panel.innerHTML = role === 'management' ? '<section class="card"><h2>Set up shared bakery data</h2><p>Choose the first shared copy. Other devices will load this copy after sign-in.</p><button class="p" onclick="ERPCloud.initialize(false)">Use the starter catalog and sample records</button><button class="s" onclick="ERPCloud.initialize(true)">Import this browser’s existing bakery data</button><p>Browser data from other devices is not merged automatically.</p></section>' : '<section class="card">Management needs to set up the shared bakery data first.</section>';
       window.ERPCloud.initialRole = role;
       announce('Signed in. Shared bakery data has not been initialized.');
-      return;
+      return role;
     }
     applyRecord(rows[0]); ready = true; blocked = false; activeRole = role;
     tab = role === 'employee' ? 'Move' : 'Products'; render();
     announce('Connected. All changes saved online.');
+    return role;
   }
   async function commit(mutator) {
     if(!ready||blocked||activeRole!=='management')throw Error('Management access and an active connection are required.');
@@ -183,8 +184,8 @@
     try {
       if(username.toLowerCase() !== expectedUsername.toLowerCase() || !email) throw new Error('Incorrect username or password.');
       rememberSession(await authRequest('token?grant_type=password', {email,password}));
-      await openBakery();
-      if(activeRole !== 'management') throw new Error('This account does not have management access.');
+      const role = await openBakery();
+      if(role !== 'management') throw new Error('This account does not have management access.');
     } catch(error) {
       rememberSession(null); activeRole = ''; ready = false;
       loginMessage = '<span class="bad">'+esc(error.message)+'</span>'; render();
@@ -197,8 +198,8 @@
     announce('Opening employee access…');
     try {
       rememberSession(await authRequest('signup', {data:{}}));
-      await openBakery();
-      if(activeRole !== 'employee') throw new Error('Employee access could not be verified.');
+      const role = await openBakery();
+      if(role !== 'employee') throw new Error('Employee access could not be verified.');
     } catch(error) {
       rememberSession(null); activeRole = ''; ready = false;
       loginMessage = '<span class="bad">'+esc(error.message)+'</span>'; render();
