@@ -10,6 +10,12 @@
     if(!Number.isFinite(adjusted))throw Error('The production target is too large.');
     return {available:true,sales,multiplier,adjusted,onHand:inventory,net:Math.max(0,unit==='units'?Math.ceil(adjusted-inventory):Math.round((adjusted-inventory)*1e6)/1e6)};
   }
+  function scheduleDivisor(section){return section==='Week 1'||section==='Week 2'?2:section==='Every Week'?4:1;}
+  function scheduledQuantity(monthly,section,unit='units'){
+    if(monthly===null||monthly===undefined)return null;
+    const share=numeric(monthly,'Monthly production')/scheduleDivisor(section);
+    return unit==='units'?Math.ceil(share):Math.round(share*1e6)/1e6;
+  }
   function stepOutput(rule){if(!rule||!(Number(rule.minimumOutput)>0)||!(Number(rule.minBatches)>0))return null;const raw=Number(rule.minimumOutput)/Number(rule.minBatches);return raw;}
   function validBatches(value,rule){const n=numeric(value,'Batches'),min=Number(rule.minBatches);if(n<min-1e-8)throw Error('This product requires at least '+min+' batches per production run.');if(Math.abs((n-min)-Math.round(n-min))>1e-8)throw Error('Change batches in steps of one, starting at '+min+'.');return n;}
   function outputForBatches(value,rule){const batches=validBatches(value,rule),step=stepOutput(rule);if(step===null)throw Error('Set the output at the minimum batch run before planning this product.');const units=Number(rule.minimumOutput)+(batches-Number(rule.minBatches))*step;return rule.unit==='units'?Math.round(units):Math.round(units*1e6)/1e6;}
@@ -23,5 +29,5 @@
     const batches=override===undefined||override===null?batchesForNeed(need,rule):validBatches(override,rule);
     return {units:outputForBatches(batches,rule),batches,minimum:rule.minBatches,needsYield:false};
   }
-  return {numeric,factor,requirement,stepOutput,validBatches,outputForBatches,batchesForNeed,plan};
+  return {numeric,factor,requirement,scheduleDivisor,scheduledQuantity,stepOutput,validBatches,outputForBatches,batchesForNeed,plan};
 });

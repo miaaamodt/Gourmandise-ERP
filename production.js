@@ -36,24 +36,33 @@
   monthlyProductionNeed=id=>model(id,savedSales(id)).net;
   forecastForSales=(id,value)=>{const r=model(id,value);return !r.available||r.plan.needsYield?'':r.plan.units;};
   needs=(id=S.cur)=>{const r=model(id,savedSales(id)),runs=productionRunsPerMonth(id),net=r.net===null?0:r.net;return {f:r.available?r.adjusted/FORECAST_WEEKS:0,base:r.available?r.adjusted/FORECAST_WEEKS:0,g:(r.multiplier-1)*100,src:r.available?`${formatMonth(salesMonth)} × ${r.multiplier} − inventory once`:'No saved sales',oh:r.onHand,sf:0,net:runs>0?(r.unit==='units'?Math.ceil(net/runs):net/runs):net};};
-  defaultProductionUnits=e=>{if(e.section==='On Demand')return null;const item=productionItem(e);if(!item)return null;const r=model(item.id,savedSales(item.id)),runs=productionRunsPerMonth(item.id);if(r.net===null||runs<=0)return null;return r.unit==='units'?Math.ceil(r.net/runs):r.net/runs;};
+  function allocation(e){
+    const item=productionItem(e);if(!item)return null;
+    const r=model(item.id,savedSales(item.id)),divisor=M.scheduleDivisor(e.section);
+    return {monthly:r.plan.units,units:M.scheduledQuantity(r.plan.units,e.section,r.unit),batches:r.plan.batches===null?null:r.plan.batches/divisor,divisor,unit:r.unit,needsYield:r.plan.needsYield};
+  }
+  defaultProductionUnits=e=>allocation(e)?.units??null;
+  function weeklyRule(e){const rule=ruleFor(e);if(!rule)return null;const divisor=M.scheduleDivisor(e.section);return {...rule,minBatches:rule.minBatches/divisor,minimumOutput:rule.minimumOutput===null?null:rule.minimumOutput/divisor};}
   function weeklyValues(e,current,hasSaved){
-    const rule=ruleFor(e);if(!rule)return current;
-    const amount={qty:M.stepOutput(rule),unit:rule.unit,batchRule:rule};
-    if(current.units===null&&current.batches===null)return {...current,amount,batchRule:rule,minimumBatches:rule.minBatches};
-    if(!hasSaved){const p=M.plan(current.units,rule);return {...current,units:p.units,batches:p.batches,amount,batchRule:rule,minimumBatches:rule.minBatches,needsYield:p.needsYield};}
-    if(current.units===0&&(!current.batches||current.batches===0))return {...current,units:0,batches:0,amount,batchRule:rule,minimumBatches:rule.minBatches};
-    if(M.stepOutput(rule)===null)return {...current,units:null,batches:null,amount,batchRule:rule,minimumBatches:rule.minBatches,needsYield:true};
-    let p;try{const batches=M.validBatches(current.batches,rule);p={units:M.outputForBatches(batches,rule),batches};}catch{p=M.plan(Number(current.units)||0,rule);}
-    return {...current,...p,amount,batchRule:rule,minimumBatches:rule.minBatches};
+    const share=allocation(e),rule=weeklyRule(e),step=rule?M.stepOutput(rule):current.amount?.qty;
+    const amount=rule?{qty:step,unit:rule.unit,batchRule:rule}:current.amount;
+    const extra={amount,allocation:share,manualQuantity:hasSaved,batchRule:rule,minimumBatches:rule?.minBatches,needsYield:share?.needsYield||false};
+    if(!hasSaved&&share){return {...current,...extra,units:share.units,batches:share.batches??(step&&share.units!==null?share.units/step:null)};}
+    if(!hasSaved||!rule)return {...current,...extra};
+    // Explicit quantities belong to this week and remain unchanged by forecast updates.
+    const units=current.units??(current.batches!==null&&step?Math.round(current.batches*step*1e6)/1e6:null);
+    const batches=current.batches??(units!==null&&step?units/step:null);
+    return {...current,...extra,units,batches,needsYield:step===null};
   }
   function weeklyPair(e,field,value,current){
-    const rule=ruleFor(e);if(!rule)return null;
-    const n=M.numeric(value,field==='units'?'Units':'Batches');
-    if(n===0){const item=itemFor(e),net=item?.id!==undefined?monthlyProductionNeed(item.id):null;if(net===0)return {units:0,batches:0};throw Error('This product cannot be reduced below '+rule.minBatches+' batches while production is needed.');}
-    const batches=field==='batches'?M.validBatches(n,rule):M.batchesForNeed(n,rule);
-    if(batches===null)throw Error('Set this product’s minimum-run output in Sales & Forecast first.');
-    return {units:M.outputForBatches(batches,rule),batches};
+    const rule=weeklyRule(e);if(!rule)return null;
+    const n=M.numeric(value,field==='units'?'Units':'Batches'),step=M.stepOutput(rule);
+    if(n===0){const item=itemFor(e),net=item?.id!==undefined?monthlyProductionNeed(item.id):null;if(net===0)return {units:0,batches:0};throw Error('This occurrence has an allocated minimum of '+fmt(rule.minBatches)+' batches.');}
+    if(step===null)throw Error('Set this product’s minimum-run output in Sales & Forecast first.');
+    const batches=field==='batches'?n:n/step;
+    if(batches<rule.minBatches-1e-8)throw Error('This occurrence has an allocated minimum of '+fmt(rule.minBatches)+' batches.');
+    const units=field==='units'?n:(rule.unit==='units'?Math.round(batches*step):Math.round(batches*step*1e6)/1e6);
+    return {units,batches};
   }
   function batchControls(id,r){
     if(!r.rule)return '<span class="mu">Not listed</span>';
@@ -80,5 +89,5 @@
   async function saveYield(){try{const n=M.numeric(document.getElementById('minimumRunOutput').value,'Minimum-run output');if(!(n>0))throw Error('Enter a value above zero.');if(await perform(state=>{state.items[batchProduct].productionMinimumOutput=n;},'Batch yield saved.'))dialog.close();}catch(error){document.getElementById('batchSetupError').textContent=error.message;}}
   function xlsx(rows){const sheet=`<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${rows.map((row,ri)=>`<row r="${ri+1}">${row.map((v,ci)=>{let n=ci+1,c='';while(n){c=String.fromCharCode(65+(n-1)%26)+c;n=Math.floor((n-1)/26);}const ref=c+(ri+1);return typeof v==='number'?`<c r="${ref}"><v>${v}</v></c>`:`<c r="${ref}" t="inlineStr"><is><t>${xmlEscape(v??'')}</t></is></c>`;}).join('')}</row>`).join('')}</sheetData></worksheet>`;return zipStoredFiles([['[Content_Types].xml','<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>'],['_rels/.rels','<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>'],['xl/workbook.xml','<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Production forecast" sheetId="1" r:id="rId1"/></sheets></workbook>'],['xl/_rels/workbook.xml.rels','<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>'],['xl/worksheets/sheet1.xml',sheet]]);}
   downloadForecastXlsx=()=>{const rows=[['Product',formatMonth(salesMonth)+' sales','Production adjustment', 'Adjusted sales target','On hand','Needed after stock','Production batches','Minimum batches','Production quantity','Measure'],...S.items.filter(i=>!i.archived).sort((a,b)=>a.name.localeCompare(b.name)).map(i=>{const r=model(i.id);return [i.name,r.sales??'',r.multiplier,r.adjusted??'',r.onHand,r.net??'',r.plan.batches??'',r.rule?.minBatches??'',r.plan.needsYield?'Set yield':r.plan.units??'',r.unit];})],url=URL.createObjectURL(xlsx(rows)),link=document.createElement('a');link.href=url;link.download=`bakery-forecast-${forecastMonth()}.xlsx`;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
-  window.ERPProductionUI={model,ruleFor,weeklyValues,weeklyPair,factor,setBatches,step,resetBatches,openYield,saveYield,fmt};
+  window.ERPProductionUI={model,ruleFor,allocation,weeklyValues,weeklyPair,factor,setBatches,step,resetBatches,openYield,saveYield,fmt};
 })();

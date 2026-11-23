@@ -50,7 +50,7 @@ sys.stdout.buffer.write(out.getvalue())`],{input:JSON.stringify(rows)});}
  assert.equal(await page.locator('#loginEmail').count(),0);assert.equal(await page.evaluate(()=>localStorage.getItem('bakery5')),'{"backup":"retained"}');
  await plan(page);await page.getByRole('button',{name:'Next week',exact:true}).click();assert.equal(await page.locator('#planWeek').inputValue(),'2026-11-30');await page.getByRole('button',{name:'Previous week',exact:true}).click();assert.equal(await page.locator('#planWeek').inputValue(),'2026-11-23');await page.getByRole('button',{name:'Current week',exact:true}).click();assert.equal(await page.locator('#planWeek').inputValue(),await page.evaluate(()=>ERPFeatures.localMonday()));await plan(page);const entry=await page.evaluate(()=>ERPFeatures.entries().find(e=>e.day==='Mon'));assert(entry);
  const card=()=>page.locator(`[data-entry="${entry.key}"]`);
- await card().locator('input').first().fill('120');await card().locator('input').first().press('Tab');await saved(page);
+ await card().locator('input').first().fill('300');await card().locator('input').first().press('Tab');await saved(page);
  const quantities=await page.evaluate(k=>S.weeklyPlans['2026-11-23'].quantities[k],entry.key);
  await card().locator('.dragHandle').dragTo(page.locator('.productionDay.day-Wed .productionDayHead'));await page.waitForFunction(key=>S.weeklyPlans?.['2026-11-23']?.assignments?.[key]==='Wed',entry.key);await saved(page);
  assert.equal(row.data.weeklyPlans['2026-11-23'].assignments[entry.key],'Wed');assert.deepEqual(row.data.weeklyPlans['2026-11-23'].quantities[entry.key],quantities);

@@ -11,3 +11,8 @@ const peanut=rules.find(r=>r.key==='peanut-butter-regular');assert.equal(M.outpu
 assert.equal(rules.find(r=>r.key==='pecan-regular').minimumOutput,1300);assert.equal(rules.find(r=>r.key==='thumbprint').minimumOutput,550);for(const key of ['brownies','almond-cake'])assert.equal(rules.find(r=>r.key===key).minimumOutput,18*35);
 for(const value of ['',-1,'bad',Infinity])assert.throws(()=>M.numeric(value,'Value'));
 console.log('Production arithmetic: formula, stock-covered zero, every PDF minimum, exact batch ratios, sheets, native measures, validation passed.');
+
+for(const section of ['Week 1','Week 2'])assert.equal(M.scheduledQuantity(1680,section),840);
+assert.equal(M.scheduledQuantity(1680,'Every Week'),420);assert.equal(M.scheduledQuantity(1680,'On Demand'),1680);
+assert.equal(M.scheduledQuantity(1681,'Week 1'),841);assert.equal(M.scheduledQuantity(10,'Every Week','gallons'),2.5);assert.equal(M.scheduledQuantity(null,'Week 1'),null);assert.equal(M.scheduledQuantity(0,'On Demand'),0);
+console.log('Weekly allocation: section divisors 2/2/4/1, exact scone example, fractional measures, blank and zero passed.');

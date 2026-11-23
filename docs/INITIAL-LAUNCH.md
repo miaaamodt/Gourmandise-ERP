@@ -22,7 +22,11 @@ The previous growth, safety-stock, and catering values remain in existing record
 
 ## Weekly plan
 
-Existing recurring product names now resolve through the existing catalog aliases where needed. Defaults divide the monthly net requirement across recurring monthly production runs. Each positive run then respects its PDF batch minimum, so a weekly schedule can produce more than the monthly net requirement. Existing saved weekly quantities remain separate from monthly batch choices. Use the weekly batch controls to adjust individual occurrences. These adjustments save for that selected week. Existing moves, custom tasks, additions, removals, inventory, and sales history are retained.
+The weekly plan starts from the **final monthly production quantity shown in Sales & Forecast**, including monthly batch choices. Week 1 and Week 2 entries each use that quantity divided by **2**; Every Week uses it divided by **4**; On Demand uses the **whole monthly quantity**. For example, a monthly forecast of 1,680 bacon cheddar scones gives **840 per Week 1 run**. Inventory is already deducted in the monthly calculation and is not subtracted again.
+
+The weekly allocation is not rounded back up to full recipe batches. Monthly batch minimums remain in Sales & Forecast; their weekly shares can be fractional batches. Whole individual pieces round up only when division leaves a fraction; native measures retain decimals. The card shows the monthly quantity and divisor so the calculation can be checked. Products without a matching catalog product or saved sales stay blank.
+
+Existing saved weekly quantities are preserved and marked **Manual quantity**. Use **Use forecast** on a recurring entry to remove that week's quantity override and follow the calculation again. Manual weekly batch changes still move by one batch with the +/− buttons and cannot fall below the allocated share of the monthly minimum. Temporary items and custom tasks keep their explicit quantities. Moving an occurrence to another day does not change its divisor, which comes from its section.
 
 ## Yield reference and setup
 
