@@ -15,6 +15,7 @@
     document.getElementById('user').disabled=!enabled;
   }
   function announce(message,recover=false) {
+    if(window.ERP_CONFIG?.accessMode==='shared')message=message.replace('Shared testing ·','Shared bakery ·').replace('No sign-in required.','Changes are shared across devices.');
     if(window.ERP_CONFIG?.accessMode==='demo')message=message.replace('Shared testing ·','Demo ·').replace('No sign-in required.','Presentation login only; shared data remains public.');
     status.replaceChildren(document.createTextNode(message));
     if(recover) {
